@@ -883,6 +883,13 @@ class ProjectCommands(AutoRegisteringGroup):
         help="Include supertype relations.",
     )
     @click.option(
+        "--calls-fallback",
+        type=click.Choice(["references", "none"]),
+        default="references",
+        show_default=True,
+        help="For language servers without call hierarchy support, derive approximate call edges from references.",
+    )
+    @click.option(
         "--hover-budget-seconds", type=float, default=0.0, show_default=True, help="Total time budget for hover requests; 0 = unlimited."
     )
     @click.option(
@@ -905,6 +912,7 @@ class ProjectCommands(AutoRegisteringGroup):
         include_docs: bool,
         include_calls: bool,
         include_type_hierarchy: bool,
+        calls_fallback: str,
         hover_budget_seconds: float,
         request_timeout: float | None,
         strict: bool,
@@ -935,6 +943,7 @@ class ProjectCommands(AutoRegisteringGroup):
             include_docs=include_docs,
             include_calls=include_calls,
             include_type_hierarchy=include_type_hierarchy,
+            calls_fallback=calls_fallback,  # type: ignore[arg-type]  # click.Choice restricts the values
             hover_budget_seconds=hover_budget_seconds,
             max_diagnostics=max_diagnostics,
         )
