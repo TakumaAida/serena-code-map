@@ -41,6 +41,9 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+MAX_CONSECUTIVE_HIERARCHY_FAILURES = 5
+"""after this many consecutive failed hierarchy requests, the capability is disabled for the language server"""
+
 
 @dataclass
 class CodeMapBuildOptions:
@@ -88,6 +91,7 @@ class CodeMapBuilder:
         self._symbol_ids_by_file: dict[str, list[str]] = {}
         self._call_hierarchy_unsupported: set[str] = set()
         self._type_hierarchy_unsupported: set[str] = set()
+        self._consecutive_hierarchy_failures: dict[tuple[str, str], int] = {}
 
     # region helpers
 
@@ -247,6 +251,56 @@ class CodeMapBuilder:
                     relative_path=relative_path,
                 )
         return external_id, False
+
+    def _register_hierarchy_failure(
+        self,
+        error: Exception,
+        ls_id: str,
+        phase: str,
+        capability_name: str,
+        request_name: str,
+        unsupported_set: set[str],
+        coverage: LanguageServerCoverage,
+        coverage_field: str,
+        resolved_count: int,
+        relative_path: str,
+        symbol_id: str,
+    ) -> None:
+        """
+        Records a failed hierarchy request. Disables the capability for the language server when the server
+        signals that the request is unsupported (MethodNotFound, or RequestFailed with a missing handler,
+        as used e.g. by the Kotlin language server), or as a backstop after
+        MAX_CONSECUTIVE_HIERARCHY_FAILURES consecutive failures.
+        """
+        if isinstance(error, SolidLSPException) and error.is_request_not_supported():
+            unsupported_set.add(ls_id)
+            setattr(coverage, coverage_field, "unsupported")
+            self._add_diagnostic("info", phase, f"{capability_name} is not supported by this language server", language_server=ls_id)
+            return
+        coverage.errors += 1
+        self._add_diagnostic(
+            "warning",
+            phase,
+            f"{request_name} request failed: {error}",
+            language_server=ls_id,
+            relative_path=relative_path,
+            symbol_id=symbol_id,
+        )
+        failure_key = (ls_id, phase)
+        self._consecutive_hierarchy_failures[failure_key] = self._consecutive_hierarchy_failures.get(failure_key, 0) + 1
+        if self._consecutive_hierarchy_failures[failure_key] >= MAX_CONSECUTIVE_HIERARCHY_FAILURES:
+            unsupported_set.add(ls_id)
+            setattr(coverage, coverage_field, "partial" if resolved_count > 0 else "unsupported")
+            self._add_diagnostic(
+                "warning",
+                phase,
+                f"Disabling {capability_name.lower()} requests for this language server after "
+                f"{MAX_CONSECUTIVE_HIERARCHY_FAILURES} consecutive failures",
+                language_server=ls_id,
+            )
+
+    def _register_hierarchy_success(self, ls_id: str, phase: str) -> None:
+        self._consecutive_hierarchy_failures.pop((ls_id, phase), None)
 
     # endregion
 
@@ -426,36 +480,23 @@ class CodeMapBuilder:
                             code_symbol.selection_range.start.character,
                             file_buffer=file_buffer,
                         )
-                    except SolidLSPException as e:
-                        if e.is_method_not_found():
-                            self._call_hierarchy_unsupported.add(ls_id)
-                            coverage.call_hierarchy = "unsupported"
-                            self._add_diagnostic(
-                                "info", "callHierarchy", "Call hierarchy is not supported by this language server", language_server=ls_id
-                            )
-                            break
-                        coverage.errors += 1
-                        self._add_diagnostic(
-                            "warning",
-                            "callHierarchy",
-                            f"Outgoing call request failed: {e}",
-                            language_server=ls_id,
-                            relative_path=relative_path,
-                            symbol_id=symbol_id,
-                        )
-                        continue
                     except Exception as e:
-                        coverage.errors += 1
-                        self._add_diagnostic(
-                            "warning",
+                        self._register_hierarchy_failure(
+                            e,
+                            ls_id,
                             "callHierarchy",
-                            f"Outgoing call request failed: {e}",
-                            language_server=ls_id,
-                            relative_path=relative_path,
-                            symbol_id=symbol_id,
+                            "Call hierarchy",
+                            "Outgoing call",
+                            self._call_hierarchy_unsupported,
+                            coverage,
+                            "call_hierarchy",
+                            coverage.callable_symbols_resolved,
+                            relative_path,
+                            symbol_id,
                         )
                         continue
 
+                    self._register_hierarchy_success(ls_id, "callHierarchy")
                     coverage.callable_symbols_resolved += 1
                     for outgoing_call in outgoing_calls:
                         target_id, _is_internal = self._resolve_hierarchy_item(outgoing_call["to"], "callHierarchy")
@@ -494,36 +535,23 @@ class CodeMapBuilder:
                             code_symbol.selection_range.start.character,
                             file_buffer=file_buffer,
                         )
-                    except SolidLSPException as e:
-                        if e.is_method_not_found():
-                            self._type_hierarchy_unsupported.add(ls_id)
-                            coverage.type_hierarchy = "unsupported"
-                            self._add_diagnostic(
-                                "info", "typeHierarchy", "Type hierarchy is not supported by this language server", language_server=ls_id
-                            )
-                            break
-                        coverage.errors += 1
-                        self._add_diagnostic(
-                            "warning",
-                            "typeHierarchy",
-                            f"Supertype request failed: {e}",
-                            language_server=ls_id,
-                            relative_path=relative_path,
-                            symbol_id=symbol_id,
-                        )
-                        continue
                     except Exception as e:
-                        coverage.errors += 1
-                        self._add_diagnostic(
-                            "warning",
+                        self._register_hierarchy_failure(
+                            e,
+                            ls_id,
                             "typeHierarchy",
-                            f"Supertype request failed: {e}",
-                            language_server=ls_id,
-                            relative_path=relative_path,
-                            symbol_id=symbol_id,
+                            "Type hierarchy",
+                            "Supertype",
+                            self._type_hierarchy_unsupported,
+                            coverage,
+                            "type_hierarchy",
+                            coverage.type_symbols_resolved,
+                            relative_path,
+                            symbol_id,
                         )
                         continue
 
+                    self._register_hierarchy_success(ls_id, "typeHierarchy")
                     coverage.type_symbols_resolved += 1
                     for supertype in supertypes:
                         supertype_id, _is_internal = self._resolve_hierarchy_item(supertype, "typeHierarchy")

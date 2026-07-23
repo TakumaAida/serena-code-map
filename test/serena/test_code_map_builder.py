@@ -157,6 +157,14 @@ def method_not_found_error() -> SolidLSPException:
     return SolidLSPException("not supported", cause=LSPError(ErrorCodes.MethodNotFound, "method not found"))
 
 
+def missing_handler_error() -> SolidLSPException:
+    from solidlsp.lsp_protocol_handler.lsp_types import LSPErrorCodes
+
+    return SolidLSPException(
+        "not supported", cause=LSPError(LSPErrorCodes.RequestFailed, "no handler for request: textDocument/prepareCallHierarchy")
+    )
+
+
 # endregion
 
 
@@ -375,6 +383,68 @@ class TestCallEdges:
         assert attempted_locations == [("src/A.java", 2, 4)]  # second symbol is not attempted
         assert code_map.coverage["mock"].call_hierarchy == "unsupported"
         assert code_map.edges_by_type("CALLS") == []
+
+    def test_missing_handler_error_short_circuits_like_kotlin_ls(self) -> None:
+        # the Kotlin LS answers unimplemented methods with RequestFailed (-32803) instead of MethodNotFound
+        m1 = make_symbol("m1", SymbolKind.Method, "src/A.kt", 2)
+        m2 = make_symbol("m2", SymbolKind.Method, "src/A.kt", 5)
+        clazz = make_symbol("A", SymbolKind.Class, "src/A.kt", 1, children=[m1, m2])
+        ls = FakeLanguageServer()
+        ls.outgoing_calls_by_location[("src/A.kt", 2, 4)] = missing_handler_error()
+        ls.outgoing_calls_by_location[("src/A.kt", 5, 4)] = missing_handler_error()
+
+        attempted: list[tuple] = []
+        original = ls.request_call_hierarchy_outgoing
+
+        def spy(path: str, line: int, column: int, file_buffer: Any = None) -> list[dict]:
+            attempted.append((path, line, column))
+            return original(path, line, column, file_buffer)
+
+        ls.request_call_hierarchy_outgoing = spy  # type: ignore[method-assign]
+        code_map, _ = build_code_map({"src/A.kt": [clazz]}, ls=ls)
+
+        assert attempted == [("src/A.kt", 2, 4)]
+        assert code_map.coverage["mock"].call_hierarchy == "unsupported"
+        assert code_map.coverage["mock"].errors == 0
+
+    def test_consecutive_failures_disable_the_capability(self) -> None:
+        from serena.code_map.builder import MAX_CONSECUTIVE_HIERARCHY_FAILURES
+
+        methods = [make_symbol(f"m{i}", SymbolKind.Method, "src/A.java", 2 + i) for i in range(MAX_CONSECUTIVE_HIERARCHY_FAILURES + 3)]
+        clazz = make_symbol("A", SymbolKind.Class, "src/A.java", 1, children=methods)
+        ls = FakeLanguageServer()
+        for i in range(len(methods)):
+            ls.outgoing_calls_by_location[("src/A.java", 2 + i, 4)] = SolidLSPException("boom")
+
+        attempted: list[tuple] = []
+        original = ls.request_call_hierarchy_outgoing
+
+        def spy(path: str, line: int, column: int, file_buffer: Any = None) -> list[dict]:
+            attempted.append((path, line, column))
+            return original(path, line, column, file_buffer)
+
+        ls.request_call_hierarchy_outgoing = spy  # type: ignore[method-assign]
+        code_map, _ = build_code_map({"src/A.java": [clazz]}, ls=ls)
+
+        assert len(attempted) == MAX_CONSECUTIVE_HIERARCHY_FAILURES  # remaining symbols are not attempted
+        assert code_map.coverage["mock"].call_hierarchy == "unsupported"
+        assert code_map.coverage["mock"].errors == MAX_CONSECUTIVE_HIERARCHY_FAILURES
+        assert any("Disabling call hierarchy requests" in d.message for d in code_map.diagnostics)
+
+    def test_intermittent_failures_do_not_disable_the_capability(self) -> None:
+        # failures interleaved with successes must not trip the consecutive-failure backstop
+        methods = [make_symbol(f"m{i}", SymbolKind.Method, "src/A.java", 2 + i) for i in range(8)]
+        clazz = make_symbol("A", SymbolKind.Class, "src/A.java", 1, children=methods)
+        ls = FakeLanguageServer()
+        for i in range(8):
+            if i % 2 == 0:
+                ls.outgoing_calls_by_location[("src/A.java", 2 + i, 4)] = SolidLSPException("boom")
+            else:
+                ls.outgoing_calls_by_location[("src/A.java", 2 + i, 4)] = []
+        code_map, _ = build_code_map({"src/A.java": [clazz]}, ls=ls)
+
+        assert code_map.coverage["mock"].callable_symbols_attempted == 8
+        assert code_map.coverage["mock"].call_hierarchy == "partial"
 
     def test_single_symbol_failure_does_not_stop_export(self) -> None:
         m1 = make_symbol("m1", SymbolKind.Method, "src/A.java", 2)
