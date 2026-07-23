@@ -184,3 +184,29 @@ class TestMethodNotFoundDetection:
     def test_non_lsp_cause_is_not_method_not_found(self) -> None:
         assert not SolidLSPException("request failed", cause=ValueError("x")).is_method_not_found()
         assert not SolidLSPException("request failed").is_method_not_found()
+
+
+class TestRequestNotSupportedDetection:
+    def test_method_not_found_is_request_not_supported(self) -> None:
+        exc = SolidLSPException("request failed", cause=LSPError(ErrorCodes.MethodNotFound, "method not found"))
+        assert exc.is_request_not_supported()
+
+    def test_request_failed_with_missing_handler_is_request_not_supported(self) -> None:
+        # the JetBrains Kotlin language server responds like this for unimplemented methods
+        from solidlsp.lsp_protocol_handler.lsp_types import LSPErrorCodes
+
+        exc = SolidLSPException(
+            "request failed",
+            cause=LSPError(LSPErrorCodes.RequestFailed, "no handler for request: textDocument/prepareCallHierarchy"),
+        )
+        assert exc.is_request_not_supported()
+
+    def test_request_failed_with_other_message_is_not_request_not_supported(self) -> None:
+        from solidlsp.lsp_protocol_handler.lsp_types import LSPErrorCodes
+
+        exc = SolidLSPException("request failed", cause=LSPError(LSPErrorCodes.RequestFailed, "index not ready"))
+        assert not exc.is_request_not_supported()
+
+    def test_other_errors_are_not_request_not_supported(self) -> None:
+        assert not SolidLSPException("request failed", cause=LSPError(ErrorCodes.InternalError, "boom")).is_request_not_supported()
+        assert not SolidLSPException("request failed").is_request_not_supported()

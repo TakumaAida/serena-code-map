@@ -8,7 +8,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePath
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
 
 from tqdm import tqdm
@@ -41,12 +41,19 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+MAX_CONSECUTIVE_HIERARCHY_FAILURES = 5
+"""after this many consecutive failed hierarchy requests, the capability is disabled for the language server"""
+
 
 @dataclass
 class CodeMapBuildOptions:
     include_docs: bool = True
     include_calls: bool = True
     include_type_hierarchy: bool = True
+    calls_fallback: Literal["references", "none"] = "references"
+    """how to derive call edges for language servers without call hierarchy support:
+    "references" derives approximate CALLS edges from textDocument/references (marked resolution="references");
+    "none" disables the fallback"""
     hover_budget_seconds: float = 0.0
     """total time budget for hover requests in seconds; 0 means unlimited"""
     max_diagnostics: int = 1000
@@ -88,6 +95,9 @@ class CodeMapBuilder:
         self._symbol_ids_by_file: dict[str, list[str]] = {}
         self._call_hierarchy_unsupported: set[str] = set()
         self._type_hierarchy_unsupported: set[str] = set()
+        self._references_fallback_unsupported: set[str] = set()
+        self._consecutive_hierarchy_failures: dict[tuple[str, str], int] = {}
+        self._callable_ranges_by_file: dict[str, list[tuple[SourceRange, str]]] | None = None
 
     # region helpers
 
@@ -248,6 +258,56 @@ class CodeMapBuilder:
                 )
         return external_id, False
 
+    def _register_hierarchy_failure(
+        self,
+        error: Exception,
+        ls_id: str,
+        phase: str,
+        capability_name: str,
+        request_name: str,
+        unsupported_set: set[str],
+        coverage: LanguageServerCoverage,
+        coverage_field: str,
+        resolved_count: int,
+        relative_path: str,
+        symbol_id: str,
+    ) -> None:
+        """
+        Records a failed hierarchy request. Disables the capability for the language server when the server
+        signals that the request is unsupported (MethodNotFound, or RequestFailed with a missing handler,
+        as used e.g. by the Kotlin language server), or as a backstop after
+        MAX_CONSECUTIVE_HIERARCHY_FAILURES consecutive failures.
+        """
+        if isinstance(error, SolidLSPException) and error.is_request_not_supported():
+            unsupported_set.add(ls_id)
+            setattr(coverage, coverage_field, "unsupported")
+            self._add_diagnostic("info", phase, f"{capability_name} is not supported by this language server", language_server=ls_id)
+            return
+        coverage.errors += 1
+        self._add_diagnostic(
+            "warning",
+            phase,
+            f"{request_name} request failed: {error}",
+            language_server=ls_id,
+            relative_path=relative_path,
+            symbol_id=symbol_id,
+        )
+        failure_key = (ls_id, phase)
+        self._consecutive_hierarchy_failures[failure_key] = self._consecutive_hierarchy_failures.get(failure_key, 0) + 1
+        if self._consecutive_hierarchy_failures[failure_key] >= MAX_CONSECUTIVE_HIERARCHY_FAILURES:
+            unsupported_set.add(ls_id)
+            setattr(coverage, coverage_field, "partial" if resolved_count > 0 else "unsupported")
+            self._add_diagnostic(
+                "warning",
+                phase,
+                f"Disabling {capability_name.lower()} requests for this language server after "
+                f"{MAX_CONSECUTIVE_HIERARCHY_FAILURES} consecutive failures",
+                language_server=ls_id,
+            )
+
+    def _register_hierarchy_success(self, ls_id: str, phase: str) -> None:
+        self._consecutive_hierarchy_failures.pop((ls_id, phase), None)
+
     # endregion
 
     def build(self) -> CodeMap:
@@ -258,6 +318,8 @@ class CodeMapBuilder:
         self._build_contains_edges()
         if self._options.include_calls:
             self._build_call_edges()
+            if self._options.calls_fallback == "references":
+                self._build_call_edges_via_references()
         if self._options.include_type_hierarchy:
             self._build_type_edges()
         self._build_class_depends_on_edges()
@@ -426,36 +488,23 @@ class CodeMapBuilder:
                             code_symbol.selection_range.start.character,
                             file_buffer=file_buffer,
                         )
-                    except SolidLSPException as e:
-                        if e.is_method_not_found():
-                            self._call_hierarchy_unsupported.add(ls_id)
-                            coverage.call_hierarchy = "unsupported"
-                            self._add_diagnostic(
-                                "info", "callHierarchy", "Call hierarchy is not supported by this language server", language_server=ls_id
-                            )
-                            break
-                        coverage.errors += 1
-                        self._add_diagnostic(
-                            "warning",
-                            "callHierarchy",
-                            f"Outgoing call request failed: {e}",
-                            language_server=ls_id,
-                            relative_path=relative_path,
-                            symbol_id=symbol_id,
-                        )
-                        continue
                     except Exception as e:
-                        coverage.errors += 1
-                        self._add_diagnostic(
-                            "warning",
+                        self._register_hierarchy_failure(
+                            e,
+                            ls_id,
                             "callHierarchy",
-                            f"Outgoing call request failed: {e}",
-                            language_server=ls_id,
-                            relative_path=relative_path,
-                            symbol_id=symbol_id,
+                            "Call hierarchy",
+                            "Outgoing call",
+                            self._call_hierarchy_unsupported,
+                            coverage,
+                            "call_hierarchy",
+                            coverage.callable_symbols_resolved,
+                            relative_path,
+                            symbol_id,
                         )
                         continue
 
+                    self._register_hierarchy_success(ls_id, "callHierarchy")
                     coverage.callable_symbols_resolved += 1
                     for outgoing_call in outgoing_calls:
                         target_id, _is_internal = self._resolve_hierarchy_item(outgoing_call["to"], "callHierarchy")
@@ -465,6 +514,112 @@ class CodeMapBuilder:
                             "CALLS", symbol_id, target_id, source_ranges=from_ranges, count=call_count, resolution="callHierarchy"
                         )
                         coverage.call_edges += 1
+
+    def _find_enclosing_callable(self, relative_path: str, line: int, character: int) -> str | None:
+        """Returns the id of the innermost internal callable whose body range contains the given position, if any."""
+        if self._callable_ranges_by_file is None:
+            index: dict[str, list[tuple[SourceRange, str]]] = {}
+            callable_kind_names = {kind.name for kind in CALLABLE_SYMBOL_KINDS}
+            for symbol in self._code_map.symbols_by_id.values():
+                if symbol.is_external or symbol.kind not in callable_kind_names:
+                    continue
+                if symbol.relative_path is None or symbol.body_range is None:
+                    continue
+                index.setdefault(symbol.relative_path, []).append((symbol.body_range, symbol.id))
+            self._callable_ranges_by_file = index
+
+        def position_in_range(body_range: SourceRange) -> bool:
+            if line < body_range.start.line or line > body_range.end.line:
+                return False
+            if line == body_range.start.line and character < body_range.start.character:
+                return False
+            if line == body_range.end.line and character > body_range.end.character:
+                return False
+            return True
+
+        innermost: tuple[tuple[int, int], str] | None = None
+        for body_range, symbol_id in self._callable_ranges_by_file.get(relative_path, []):
+            if position_in_range(body_range):
+                extent = (body_range.end.line - body_range.start.line, body_range.end.character - body_range.start.character)
+                if innermost is None or extent < innermost[0]:
+                    innermost = (extent, symbol_id)
+        return innermost[1] if innermost is not None else None
+
+    def _build_call_edges_via_references(self) -> None:
+        """
+        Fallback for language servers without call hierarchy support (e.g. the Kotlin LS or PHP intelephense):
+        derives approximate CALLS edges from textDocument/references by resolving each reference to a callable's
+        definition to its innermost enclosing callable. The resulting edges are marked with resolution="references"
+        since a reference is not necessarily a call (e.g. a function passed as a value).
+        """
+        callables_by_file = self._symbol_ids_by_file_with_kinds(CALLABLE_SYMBOL_KINDS)
+        target_files: list[tuple[str, Any, list[str]]] = []
+        for relative_path in sorted(callables_by_file):
+            ls = self._ls_manager.get_language_server(relative_path)
+            if ls.ls_id.value in self._call_hierarchy_unsupported:
+                target_files.append((relative_path, ls, callables_by_file[relative_path]))
+        if not target_files:
+            return
+
+        file_iterator = tqdm(target_files, desc="Calls via references", disable=not self._options.show_progress)
+        for relative_path, ls, symbol_ids in file_iterator:
+            ls_id = ls.ls_id.value
+            if ls_id in self._references_fallback_unsupported:
+                continue
+            coverage = self._coverage(ls_id)
+            coverage.call_fallback = "references"
+            for symbol_id in symbol_ids:
+                if ls_id in self._references_fallback_unsupported:
+                    break
+                code_symbol = self._code_map.symbols_by_id[symbol_id]
+                if code_symbol.selection_range is None:
+                    continue
+                coverage.callable_symbols_attempted += 1
+                try:
+                    references = ls.request_references(
+                        relative_path,
+                        code_symbol.selection_range.start.line,
+                        code_symbol.selection_range.start.character,
+                    )
+                except Exception as e:
+                    self._register_hierarchy_failure(
+                        e,
+                        ls_id,
+                        "referencesFallback",
+                        "References",
+                        "Reference",
+                        self._references_fallback_unsupported,
+                        coverage,
+                        "call_fallback",
+                        coverage.callable_symbols_resolved,
+                        relative_path,
+                        symbol_id,
+                    )
+                    continue
+
+                self._register_hierarchy_success(ls_id, "referencesFallback")
+                coverage.callable_symbols_resolved += 1
+                for reference in references:
+                    reference_path = reference.get("relativePath")
+                    reference_range = reference.get("range")
+                    if reference_path is None or reference_range is None:
+                        continue
+                    caller_id = self._find_enclosing_callable(
+                        self._posix_path(reference_path),
+                        reference_range["start"]["line"],
+                        reference_range["start"]["character"],
+                    )
+                    if caller_id is None or caller_id == symbol_id:
+                        continue
+                    self._add_edge(
+                        "CALLS",
+                        caller_id,
+                        symbol_id,
+                        source_ranges=[SourceRange.from_lsp(reference_range)],
+                        count=1,
+                        resolution="references",
+                    )
+                    coverage.call_edges += 1
 
     # endregion
 
@@ -494,36 +649,23 @@ class CodeMapBuilder:
                             code_symbol.selection_range.start.character,
                             file_buffer=file_buffer,
                         )
-                    except SolidLSPException as e:
-                        if e.is_method_not_found():
-                            self._type_hierarchy_unsupported.add(ls_id)
-                            coverage.type_hierarchy = "unsupported"
-                            self._add_diagnostic(
-                                "info", "typeHierarchy", "Type hierarchy is not supported by this language server", language_server=ls_id
-                            )
-                            break
-                        coverage.errors += 1
-                        self._add_diagnostic(
-                            "warning",
-                            "typeHierarchy",
-                            f"Supertype request failed: {e}",
-                            language_server=ls_id,
-                            relative_path=relative_path,
-                            symbol_id=symbol_id,
-                        )
-                        continue
                     except Exception as e:
-                        coverage.errors += 1
-                        self._add_diagnostic(
-                            "warning",
+                        self._register_hierarchy_failure(
+                            e,
+                            ls_id,
                             "typeHierarchy",
-                            f"Supertype request failed: {e}",
-                            language_server=ls_id,
-                            relative_path=relative_path,
-                            symbol_id=symbol_id,
+                            "Type hierarchy",
+                            "Supertype",
+                            self._type_hierarchy_unsupported,
+                            coverage,
+                            "type_hierarchy",
+                            coverage.type_symbols_resolved,
+                            relative_path,
+                            symbol_id,
                         )
                         continue
 
+                    self._register_hierarchy_success(ls_id, "typeHierarchy")
                     coverage.type_symbols_resolved += 1
                     for supertype in supertypes:
                         supertype_id, _is_internal = self._resolve_hierarchy_item(supertype, "typeHierarchy")

@@ -52,7 +52,7 @@ OWNER_SYMBOL_KINDS = (
 """Symbol kinds that can serve as the owner of a callable for CLASS_DEPENDS_ON aggregation."""
 
 EdgeType = Literal["CONTAINS", "CALLS", "TYPE_SUPERTYPE", "CLASS_DEPENDS_ON"]
-EdgeResolution = Literal["documentSymbol", "callHierarchy", "typeHierarchy", "derived"]
+EdgeResolution = Literal["documentSymbol", "callHierarchy", "typeHierarchy", "references", "derived"]
 CoverageStatus = Literal["supported", "unsupported", "partial", "not_attempted"]
 
 
@@ -169,6 +169,9 @@ class LanguageServerCoverage:
     hover: CoverageStatus = "not_attempted"
     call_hierarchy: CoverageStatus = "not_attempted"
     type_hierarchy: CoverageStatus = "not_attempted"
+    call_fallback: str = "none"
+    """how call edges were derived when call hierarchy is unsupported: "none", "references",
+    or a failure status ("partial"/"unsupported") if the fallback itself failed"""
     hover_symbols_attempted: int = 0
     hover_symbols_resolved: int = 0
     callable_symbols_attempted: int = 0
@@ -184,6 +187,7 @@ class LanguageServerCoverage:
             "hover": self.hover,
             "call_hierarchy": self.call_hierarchy,
             "type_hierarchy": self.type_hierarchy,
+            "call_fallback": self.call_fallback,
             "hover_symbols_attempted": self.hover_symbols_attempted,
             "hover_symbols_resolved": self.hover_symbols_resolved,
             "callable_symbols_attempted": self.callable_symbols_attempted,

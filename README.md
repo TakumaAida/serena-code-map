@@ -34,7 +34,7 @@ Serena が LSP から取得できる情報(document symbols / hover / call hiera
 - **LLM 不使用** — 解析は LSP とローカル処理のみ。コメントがない箇所で役割を捏造しません
 - **既存の Serena を壊さない** — 新しい MCP ツールは追加せず、既存の symbol tools は従来どおり動作します
 - **JavaDoc / docstring 保持** — hover から取得した signature・`@param`・`@return` 等を `signature` / `documentation` として構造化保存
-- **Call Hierarchy 非対応の言語サーバーでも動作** — 対応状況は `manifest.json` の coverage に記録され、export 自体は成功します
+- **Call Hierarchy 非対応の言語サーバーでも動作** — 対応状況は `manifest.json` の coverage に記録され、export 自体は成功します。さらに Kotlin LS や PHP intelephense のように call hierarchy が未実装のサーバーでは、**references から近似の呼び出しエッジを自動導出**します(`"resolution": "references"` として区別記録、`--calls-fallback none` で無効化可能)
 
 ### 主なオプション
 

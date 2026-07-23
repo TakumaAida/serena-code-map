@@ -38,6 +38,24 @@ class SolidLSPException(Exception):
 
         return isinstance(self.cause, LSPError) and self.cause.code == ErrorCodes.MethodNotFound
 
+    def is_request_not_supported(self) -> bool:
+        """
+        :return: True if the exception indicates that the language server does not support the requested method.
+            This covers the standard JSON-RPC `MethodNotFound` error (-32601) as well as servers that respond
+            with `RequestFailed` (-32803) and a message stating that there is no handler for the request
+            (e.g. the JetBrains Kotlin language server).
+        """
+        from .lsp_protocol_handler.lsp_types import LSPErrorCodes
+        from .lsp_protocol_handler.server import LSPError
+
+        if self.is_method_not_found():
+            return True
+        return (
+            isinstance(self.cause, LSPError)
+            and self.cause.code == LSPErrorCodes.RequestFailed
+            and "no handler for request" in str(self.cause).lower()
+        )
+
     def get_affected_language(self) -> LanguageServerId | None:
         """
         :return: the affected language for the case where the exception is caused by the language server having terminated

@@ -77,6 +77,8 @@ class FakeLanguageServer:
         self.document_symbols_by_file: dict[str, list[dict]] = {}
         self.outgoing_calls_by_location: dict[tuple[str, int, int], Any] = {}
         self.supertypes_by_location: dict[tuple[str, int, int], Any] = {}
+        self.references_by_location: dict[tuple[str, int, int], Any] = {}
+        self.reference_requests: list[tuple[str, int, int]] = []
         # spies for methods that must never be invoked by the exporter
         self.request_call_hierarchy_incoming = MagicMock(name="request_call_hierarchy_incoming")
         self.request_type_hierarchy_subtypes = MagicMock(name="request_type_hierarchy_subtypes")
@@ -101,6 +103,13 @@ class FakeLanguageServer:
 
     def request_type_hierarchy_supertypes(self, relative_file_path: str, line: int, column: int, file_buffer: Any = None) -> list[dict]:
         result = self.supertypes_by_location.get((relative_file_path, line, column), [])
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    def request_references(self, relative_file_path: str, line: int, column: int) -> list[dict]:
+        self.reference_requests.append((relative_file_path, line, column))
+        result = self.references_by_location.get((relative_file_path, line, column), [])
         if isinstance(result, Exception):
             raise result
         return result
@@ -155,6 +164,14 @@ def build_code_map(
 
 def method_not_found_error() -> SolidLSPException:
     return SolidLSPException("not supported", cause=LSPError(ErrorCodes.MethodNotFound, "method not found"))
+
+
+def missing_handler_error() -> SolidLSPException:
+    from solidlsp.lsp_protocol_handler.lsp_types import LSPErrorCodes
+
+    return SolidLSPException(
+        "not supported", cause=LSPError(LSPErrorCodes.RequestFailed, "no handler for request: textDocument/prepareCallHierarchy")
+    )
 
 
 # endregion
@@ -376,6 +393,68 @@ class TestCallEdges:
         assert code_map.coverage["mock"].call_hierarchy == "unsupported"
         assert code_map.edges_by_type("CALLS") == []
 
+    def test_missing_handler_error_short_circuits_like_kotlin_ls(self) -> None:
+        # the Kotlin LS answers unimplemented methods with RequestFailed (-32803) instead of MethodNotFound
+        m1 = make_symbol("m1", SymbolKind.Method, "src/A.kt", 2)
+        m2 = make_symbol("m2", SymbolKind.Method, "src/A.kt", 5)
+        clazz = make_symbol("A", SymbolKind.Class, "src/A.kt", 1, children=[m1, m2])
+        ls = FakeLanguageServer()
+        ls.outgoing_calls_by_location[("src/A.kt", 2, 4)] = missing_handler_error()
+        ls.outgoing_calls_by_location[("src/A.kt", 5, 4)] = missing_handler_error()
+
+        attempted: list[tuple] = []
+        original = ls.request_call_hierarchy_outgoing
+
+        def spy(path: str, line: int, column: int, file_buffer: Any = None) -> list[dict]:
+            attempted.append((path, line, column))
+            return original(path, line, column, file_buffer)
+
+        ls.request_call_hierarchy_outgoing = spy  # type: ignore[method-assign]
+        code_map, _ = build_code_map({"src/A.kt": [clazz]}, ls=ls)
+
+        assert attempted == [("src/A.kt", 2, 4)]
+        assert code_map.coverage["mock"].call_hierarchy == "unsupported"
+        assert code_map.coverage["mock"].errors == 0
+
+    def test_consecutive_failures_disable_the_capability(self) -> None:
+        from serena.code_map.builder import MAX_CONSECUTIVE_HIERARCHY_FAILURES
+
+        methods = [make_symbol(f"m{i}", SymbolKind.Method, "src/A.java", 2 + i) for i in range(MAX_CONSECUTIVE_HIERARCHY_FAILURES + 3)]
+        clazz = make_symbol("A", SymbolKind.Class, "src/A.java", 1, children=methods)
+        ls = FakeLanguageServer()
+        for i in range(len(methods)):
+            ls.outgoing_calls_by_location[("src/A.java", 2 + i, 4)] = SolidLSPException("boom")
+
+        attempted: list[tuple] = []
+        original = ls.request_call_hierarchy_outgoing
+
+        def spy(path: str, line: int, column: int, file_buffer: Any = None) -> list[dict]:
+            attempted.append((path, line, column))
+            return original(path, line, column, file_buffer)
+
+        ls.request_call_hierarchy_outgoing = spy  # type: ignore[method-assign]
+        code_map, _ = build_code_map({"src/A.java": [clazz]}, ls=ls)
+
+        assert len(attempted) == MAX_CONSECUTIVE_HIERARCHY_FAILURES  # remaining symbols are not attempted
+        assert code_map.coverage["mock"].call_hierarchy == "unsupported"
+        assert code_map.coverage["mock"].errors == MAX_CONSECUTIVE_HIERARCHY_FAILURES
+        assert any("Disabling call hierarchy requests" in d.message for d in code_map.diagnostics)
+
+    def test_intermittent_failures_do_not_disable_the_capability(self) -> None:
+        # failures interleaved with successes must not trip the consecutive-failure backstop
+        methods = [make_symbol(f"m{i}", SymbolKind.Method, "src/A.java", 2 + i) for i in range(8)]
+        clazz = make_symbol("A", SymbolKind.Class, "src/A.java", 1, children=methods)
+        ls = FakeLanguageServer()
+        for i in range(8):
+            if i % 2 == 0:
+                ls.outgoing_calls_by_location[("src/A.java", 2 + i, 4)] = SolidLSPException("boom")
+            else:
+                ls.outgoing_calls_by_location[("src/A.java", 2 + i, 4)] = []
+        code_map, _ = build_code_map({"src/A.java": [clazz]}, ls=ls)
+
+        assert code_map.coverage["mock"].callable_symbols_attempted == 8
+        assert code_map.coverage["mock"].call_hierarchy == "partial"
+
     def test_single_symbol_failure_does_not_stop_export(self) -> None:
         m1 = make_symbol("m1", SymbolKind.Method, "src/A.java", 2)
         m2 = make_symbol("m2", SymbolKind.Method, "src/A.java", 5)
@@ -401,6 +480,100 @@ class TestCallEdges:
         _, ls = build_code_map(self._two_class_fixture(), ls=ls)
 
         ls.request_call_hierarchy_incoming.assert_not_called()
+
+
+class TestReferencesFallback:
+    """CALLS edges derived from references when the language server has no call hierarchy support."""
+
+    def _kotlin_style_fixture(self) -> tuple[dict[str, list[dict]], FakeLanguageServer]:
+        # caller() spans lines 2-4 (body), callee() is defined at line 6
+        caller = make_symbol("caller", SymbolKind.Method, "src/A.kt", 2, end_line=4)
+        callee = make_symbol("callee", SymbolKind.Method, "src/A.kt", 6, end_line=8)
+        clazz = make_symbol("A", SymbolKind.Class, "src/A.kt", 1, end_line=10, children=[caller, callee])
+        ls = FakeLanguageServer()
+        # call hierarchy is unsupported (Kotlin-style)
+        ls.outgoing_calls_by_location[("src/A.kt", 2, 4)] = missing_handler_error()
+        # callee is referenced from inside caller's body (line 3) and from a top-level position (line 9 is inside class but outside callables)
+        ls.references_by_location[("src/A.kt", 6, 4)] = [
+            {"relativePath": "src/A.kt", "range": _range(3, 8, 14)},
+            {"relativePath": "src/A.kt", "range": _range(9, 0, 6)},
+        ]
+        return {"src/A.kt": [clazz]}, ls
+
+    def test_fallback_derives_calls_edges_from_references(self) -> None:
+        files, ls = self._kotlin_style_fixture()
+        code_map, _ = build_code_map(files, ls=ls)
+
+        calls = code_map.edges_by_type("CALLS")
+        assert len(calls) == 1
+        assert calls[0].source == "mock|src/A.kt|A/caller|Method"
+        assert calls[0].target == "mock|src/A.kt|A/callee|Method"
+        assert calls[0].resolution == "references"
+        assert code_map.coverage["mock"].call_fallback == "references"
+        assert code_map.coverage["mock"].call_hierarchy == "unsupported"  # stays honest
+
+    def test_fallback_feeds_class_depends_on(self) -> None:
+        caller = make_symbol("caller", SymbolKind.Method, "src/A.kt", 2, end_line=4)
+        caller_class = make_symbol("A", SymbolKind.Class, "src/A.kt", 1, end_line=10, children=[caller])
+        callee = make_symbol("callee", SymbolKind.Method, "src/B.kt", 2, end_line=4)
+        callee_class = make_symbol("B", SymbolKind.Class, "src/B.kt", 1, end_line=10, children=[callee])
+        ls = FakeLanguageServer()
+        ls.outgoing_calls_by_location[("src/A.kt", 2, 4)] = missing_handler_error()
+        ls.references_by_location[("src/B.kt", 2, 4)] = [{"relativePath": "src/A.kt", "range": _range(3, 8, 14)}]
+        code_map, _ = build_code_map({"src/A.kt": [caller_class], "src/B.kt": [callee_class]}, ls=ls)
+
+        depends = code_map.edges_by_type("CLASS_DEPENDS_ON")
+        assert len(depends) == 1
+        assert depends[0].source == "mock|src/A.kt|A|Class"
+        assert depends[0].target == "mock|src/B.kt|B|Class"
+
+    def test_references_outside_callables_are_ignored(self) -> None:
+        files, ls = self._kotlin_style_fixture()
+        code_map, _ = build_code_map(files, ls=ls)
+
+        # the reference at line 9 (inside the class but outside any callable body) must not create an edge
+        assert all(e.source != "mock|src/A.kt|A|Class" for e in code_map.edges_by_type("CALLS"))
+
+    def test_self_references_are_ignored(self) -> None:
+        method = make_symbol("recurse", SymbolKind.Method, "src/A.kt", 2, end_line=6)
+        clazz = make_symbol("A", SymbolKind.Class, "src/A.kt", 1, end_line=10, children=[method])
+        ls = FakeLanguageServer()
+        ls.outgoing_calls_by_location[("src/A.kt", 2, 4)] = missing_handler_error()
+        ls.references_by_location[("src/A.kt", 2, 4)] = [{"relativePath": "src/A.kt", "range": _range(4, 8, 15)}]
+        code_map, _ = build_code_map({"src/A.kt": [clazz]}, ls=ls)
+
+        assert code_map.edges_by_type("CALLS") == []
+
+    def test_fallback_not_used_when_call_hierarchy_is_supported(self) -> None:
+        caller = make_symbol("caller", SymbolKind.Method, "src/a.py", 2, end_line=4)
+        code_map, ls = build_code_map({"src/a.py": [caller]})
+
+        assert ls.reference_requests == []
+        assert code_map.coverage["mock"].call_fallback == "none"
+
+    def test_fallback_can_be_disabled(self) -> None:
+        files, ls = self._kotlin_style_fixture()
+        code_map, _ = build_code_map(files, ls=ls, options=CodeMapBuildOptions(show_progress=False, calls_fallback="none"))
+
+        assert ls.reference_requests == []
+        assert code_map.edges_by_type("CALLS") == []
+
+    def test_fallback_failures_are_bounded(self) -> None:
+        from serena.code_map.builder import MAX_CONSECUTIVE_HIERARCHY_FAILURES
+
+        methods = [
+            make_symbol(f"m{i}", SymbolKind.Method, "src/A.kt", 2 + i * 3, end_line=4 + i * 3)
+            for i in range(MAX_CONSECUTIVE_HIERARCHY_FAILURES + 3)
+        ]
+        clazz = make_symbol("A", SymbolKind.Class, "src/A.kt", 1, end_line=50, children=methods)
+        ls = FakeLanguageServer()
+        for i in range(len(methods)):
+            ls.outgoing_calls_by_location[("src/A.kt", 2 + i * 3, 4)] = missing_handler_error()
+            ls.references_by_location[("src/A.kt", 2 + i * 3, 4)] = SolidLSPException("boom")
+        code_map, _ = build_code_map({"src/A.kt": [clazz]}, ls=ls)
+
+        assert len(ls.reference_requests) == MAX_CONSECUTIVE_HIERARCHY_FAILURES
+        assert any("Disabling references requests" in d.message for d in code_map.diagnostics)
 
 
 class TestTypeEdges:
