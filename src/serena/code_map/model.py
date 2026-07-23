@@ -205,6 +205,8 @@ class CodeMap:
     diagnostics: list[CodeMapDiagnostic] = field(default_factory=list)
     coverage: dict[str, LanguageServerCoverage] = field(default_factory=dict)
     dropped_diagnostics: int = 0
+    unresolved_internal_targets: int = 0
+    """number of hierarchy items that pointed inside the project but could not be resolved to a known symbol"""
 
     def sorted_symbols(self) -> list[CodeMapSymbol]:
         return sorted(self.symbols_by_id.values(), key=lambda s: s.id)

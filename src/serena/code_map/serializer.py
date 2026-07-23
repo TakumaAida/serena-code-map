@@ -76,6 +76,7 @@ def render_manifest_json(code_map: CodeMap) -> str:
         "edge_count": len(code_map.edges),
         "diagnostic_count": len(code_map.diagnostics),
         "dropped_diagnostics": code_map.dropped_diagnostics,
+        "unresolved_internal_targets": code_map.unresolved_internal_targets,
         "coverage": {ls_id: coverage.to_dict() for ls_id, coverage in sorted(code_map.coverage.items())},
     }
     return json.dumps(manifest, sort_keys=True, ensure_ascii=False, indent=2) + "\n"

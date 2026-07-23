@@ -227,6 +227,7 @@ class CodeMapBuilder:
                 is_external=True,
             )
             if relative_path is not None:
+                self._code_map.unresolved_internal_targets += 1
                 self._add_diagnostic(
                     "info",
                     resolution_phase,

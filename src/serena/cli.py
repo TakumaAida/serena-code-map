@@ -839,6 +839,116 @@ class ProjectCommands(AutoRegisteringGroup):
 
     @staticmethod
     @click.command(
+        "export-code-map",
+        help="Export a static code map (symbols, docs, call/type relations) to Markdown and JSONL files. "
+        "Auto-creates project.yml if it doesn't exist.",
+        context_settings={"max_content_width": _MAX_CONTENT_WIDTH},
+    )
+    @click.argument("project", type=PROJECT_TYPE, default=os.getcwd(), required=False)
+    @click.option(
+        "--output", type=click.Path(file_okay=False), default=None, help="Output directory; defaults to <project>/.serena/code-map."
+    )
+    @click.option(
+        "--include-docs/--no-include-docs", "include_docs", default=True, show_default=True, help="Include hover-based docs/signatures."
+    )
+    @click.option(
+        "--include-calls/--no-include-calls", "include_calls", default=True, show_default=True, help="Include the outgoing call graph."
+    )
+    @click.option(
+        "--include-type-hierarchy/--no-include-type-hierarchy",
+        "include_type_hierarchy",
+        default=True,
+        show_default=True,
+        help="Include supertype relations.",
+    )
+    @click.option(
+        "--hover-budget-seconds", type=float, default=0.0, show_default=True, help="Total time budget for hover requests; 0 = unlimited."
+    )
+    @click.option(
+        "--request-timeout", type=float, default=None, help="Timeout for a single LSP request; defaults to the Serena configuration."
+    )
+    @click.option(
+        "--strict", is_flag=True, help="Exit with a non-zero code on unsupported capabilities, errors or unresolved call targets."
+    )
+    @click.option("--max-diagnostics", type=int, default=1000, show_default=True, help="Maximum number of diagnostics to record.")
+    @click.option("--overview-max-chars", type=int, default=32768, show_default=True, help="Maximum size of overview.md in characters.")
+    @click.option(
+        "--log-level",
+        type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]),
+        default="WARNING",
+        help="Log level for the export.",
+    )
+    def export_code_map(
+        project: str,
+        output: str | None,
+        include_docs: bool,
+        include_calls: bool,
+        include_type_hierarchy: bool,
+        hover_budget_seconds: float,
+        request_timeout: float | None,
+        strict: bool,
+        max_diagnostics: int,
+        overview_max_chars: int,
+        log_level: str,
+    ) -> None:
+        from serena.code_map import CodeMapBuilder, CodeMapBuildOptions, write_code_map
+
+        logging.configure(level=logging.getLevelNamesMapping()[log_level.upper()])
+        serena_config = SerenaConfig.from_config_file()
+        if request_timeout is not None:
+            # the LS request timeout is derived from the tool timeout (which is 5s larger, see Project.create_language_server_manager)
+            serena_config.tool_timeout = request_timeout + 5
+        registered_project = serena_config.get_registered_project(project, autoregister=True)
+        if registered_project is None:
+            click.echo(f"No existing project found for '{project}'. Attempting auto-creation ...")
+            try:
+                registered_project = ProjectCommands._create_project(project, None, ())
+            except Exception as e:
+                raise click.ClickException(str(e))
+
+        proj = registered_project.get_project_instance(serena_config=serena_config)
+        output_dir = output if output is not None else os.path.join(proj.project_root, ".serena", "code-map")
+
+        options = CodeMapBuildOptions(
+            include_docs=include_docs,
+            include_calls=include_calls,
+            include_type_hierarchy=include_type_hierarchy,
+            hover_budget_seconds=hover_budget_seconds,
+            max_diagnostics=max_diagnostics,
+        )
+
+        ls_mgr = proj.create_language_server_manager()
+        try:
+            builder = CodeMapBuilder(proj, ls_mgr, options=options)
+            code_map = builder.build()
+            ls_mgr.save_all_caches()
+        finally:
+            ls_mgr.stop_all()
+
+        write_code_map(code_map, output_dir, overview_max_chars=overview_max_chars)
+
+        coverage_summary = ", ".join(f"{ls_id}={coverage.call_hierarchy}" for ls_id, coverage in sorted(code_map.coverage.items()))
+        click.echo("Generated Serena code map")
+        click.echo(f"  symbols: {len(code_map.symbols_by_id):,}")
+        click.echo(f"  edges: {len(code_map.edges):,}")
+        if coverage_summary:
+            click.echo(f"  call hierarchy: {coverage_summary}")
+        click.echo(f"  output: {output_dir}")
+
+        if strict:
+            failures = []
+            total_errors = sum(coverage.errors for coverage in code_map.coverage.values())
+            if total_errors > 0:
+                failures.append(f"{total_errors} error(s) occurred during the export")
+            if include_calls and code_map.coverage and all(c.call_hierarchy == "unsupported" for c in code_map.coverage.values()):
+                failures.append("call hierarchy is unsupported by all language servers")
+            if code_map.unresolved_internal_targets > 0:
+                failures.append(f"{code_map.unresolved_internal_targets} internal hierarchy target(s) could not be resolved")
+            if failures:
+                raise click.ClickException("Strict mode: " + "; ".join(failures))
+
+    @staticmethod
+    @click.command(
         "is_ignored_path",
         help="Check if a path is ignored by the project configuration.",
         context_settings={"max_content_width": _MAX_CONTENT_WIDTH},
