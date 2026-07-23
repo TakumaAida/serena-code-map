@@ -26,6 +26,10 @@ def _first_paragraph(documentation: str | None) -> str | None:
         return None
     paragraph = documentation.strip().split("\n\n")[0].strip()
     paragraph = " ".join(line.strip() for line in paragraph.split("\n") if line.strip())
+    # drop trailing "Source: *[...]" links that some language servers (e.g. JDT LS) append to hover docs
+    source_link_index = paragraph.find("Source: *[")
+    if source_link_index != -1:
+        paragraph = paragraph[:source_link_index].rstrip()
     if not paragraph:
         return None
     if len(paragraph) > _MAX_DESCRIPTION_CHARS:

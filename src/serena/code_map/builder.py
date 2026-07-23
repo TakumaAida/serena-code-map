@@ -7,7 +7,7 @@ import logging
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import PurePath
+from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
@@ -175,6 +175,18 @@ class CodeMapBuilder:
         if relative_path is None or relative_path == ".." or relative_path.startswith(".." + os.path.sep):
             return None
         return self._posix_path(relative_path)
+
+    def _strip_absolute_project_paths(self, text: str) -> str:
+        """
+        Replaces absolute references to the project root (as file URI or plain path) in hover text
+        with project-relative ones. Some language servers (e.g. Eclipse JDT LS) embed absolute
+        `file://` source links in hover markdown, which would make the output machine-dependent.
+        """
+        project_root = str(self._project.project_root)
+        root_uri = Path(project_root).as_uri()
+        for prefix in (root_uri + "/", root_uri, project_root + os.path.sep, project_root):
+            text = text.replace(prefix, "")
+        return text
 
     @staticmethod
     def _external_uri_fragment(uri: str) -> str:
@@ -369,7 +381,7 @@ class CodeMapBuilder:
             if raw_info is None:
                 continue
             code_symbol = self._code_map.symbols_by_id[symbol_id]
-            parts = parse_quick_info(raw_info, ls_symbol.name)
+            parts = parse_quick_info(self._strip_absolute_project_paths(raw_info), ls_symbol.name)
             if parts is None:
                 continue
             code_symbol.quick_info_raw = parts.raw

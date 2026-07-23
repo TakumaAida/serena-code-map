@@ -145,10 +145,10 @@ def build_code_map(
     project = FakeProject(sorted(files.keys()))
     manager = FakeLanguageServerManager(ls)
     builder = CodeMapBuilder(
-        project,  # type: ignore[arg-type]
-        manager,  # type: ignore[arg-type]
+        project,
+        manager,
         options=options or CodeMapBuildOptions(show_progress=False),
-        symbol_retriever=retriever or FakeSymbolRetriever(),  # type: ignore[arg-type]
+        symbol_retriever=retriever or FakeSymbolRetriever(),
     )
     return builder.build(), ls
 
@@ -247,6 +247,17 @@ class TestQuickInfo:
 
         assert retriever.received_budget_override is None  # never called
         assert code_map.symbols_by_id["mock|src/a.py|f|Function"].quick_info_raw is None
+
+    def test_absolute_project_paths_are_stripped_from_hover(self) -> None:
+        func = make_symbol("f", SymbolKind.Function, "src/a.py", 1)
+        raw = f"```python\ndef f()\n```\nDocs with a link: [src](file://{PROJECT_ROOT}/src/a.py#1) and path {PROJECT_ROOT}/src/a.py."
+        retriever = FakeSymbolRetriever({"f": raw})
+        code_map, _ = build_code_map({"src/a.py": [func]}, retriever=retriever)
+
+        symbol = code_map.symbols_by_id["mock|src/a.py|f|Function"]
+        assert symbol.quick_info_raw is not None
+        assert PROJECT_ROOT not in symbol.quick_info_raw
+        assert "src/a.py" in symbol.quick_info_raw
 
     def test_missing_hover_does_not_fabricate(self) -> None:
         func = make_symbol("f", SymbolKind.Function, "src/a.py", 1)
