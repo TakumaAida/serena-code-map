@@ -780,7 +780,14 @@ class ProjectCommands(AutoRegisteringGroup):
         help="Log level for indexing.",
     )
     @click.option("--timeout", type=float, default=10, help="Timeout for indexing a single file.")
-    def index(project: str, name: str | None, language: tuple[str, ...], log_level: str, timeout: float) -> None:
+    @click.option(
+        "--code-map/--no-code-map",
+        "code_map",
+        default=True,
+        show_default=True,
+        help="Also export the static code map to <project>/.serena/code-map after indexing.",
+    )
+    def index(project: str, name: str | None, language: tuple[str, ...], log_level: str, timeout: float, code_map: bool) -> None:
         serena_config = SerenaConfig.from_config_file()
         registered_project = serena_config.get_registered_project(project, autoregister=True)
         if registered_project is None:
@@ -791,10 +798,10 @@ class ProjectCommands(AutoRegisteringGroup):
             except Exception as e:
                 raise click.ClickException(str(e))
 
-        ProjectCommands._index_project(registered_project, log_level, timeout=timeout)
+        ProjectCommands._index_project(registered_project, log_level, timeout=timeout, code_map=code_map)
 
     @staticmethod
-    def _index_project(registered_project: RegisteredProject, log_level: str, timeout: float) -> None:
+    def _index_project(registered_project: RegisteredProject, log_level: str, timeout: float, code_map: bool = True) -> None:
         lvl = logging.getLevelNamesMapping()[log_level.upper()]
         logging.configure(level=lvl)
         serena_config = SerenaConfig.from_config_file()
@@ -826,6 +833,20 @@ class ProjectCommands(AutoRegisteringGroup):
             reported_language_file_counts = {k.value: v for k, v in language_file_counts.items()}
             click.echo(f"Indexed files per language: {dict_string(reported_language_file_counts, brackets=None)}")
             ls_mgr.save_all_caches()
+
+            if code_map:
+                from serena.code_map.export import default_code_map_dir, export_project_code_map
+
+                click.echo("Exporting code map …")
+                try:
+                    code_map_result, _ = export_project_code_map(proj, ls_mgr)
+                    click.echo(
+                        f"Exported code map ({len(code_map_result.symbols_by_id)} symbols, {len(code_map_result.edges)} edges) "
+                        f"to {default_code_map_dir(str(proj.project_root))}"
+                    )
+                except Exception as e:
+                    log.error("Code map export failed", exc_info=e)
+                    click.echo(f"Code map export failed (indexing itself succeeded): {e}")
 
             if len(files_failed) > 0:
                 os.makedirs(os.path.dirname(log_file), exist_ok=True)
@@ -891,7 +912,8 @@ class ProjectCommands(AutoRegisteringGroup):
         overview_max_chars: int,
         log_level: str,
     ) -> None:
-        from serena.code_map import CodeMapBuilder, CodeMapBuildOptions, write_code_map
+        from serena.code_map import CodeMapBuildOptions
+        from serena.code_map.export import export_project_code_map
 
         logging.configure(level=logging.getLevelNamesMapping()[log_level.upper()])
         serena_config = SerenaConfig.from_config_file()
@@ -919,13 +941,12 @@ class ProjectCommands(AutoRegisteringGroup):
 
         ls_mgr = proj.create_language_server_manager()
         try:
-            builder = CodeMapBuilder(proj, ls_mgr, options=options)
-            code_map = builder.build()
+            code_map, _ = export_project_code_map(
+                proj, ls_mgr, options=options, output_dir=output_dir, overview_max_chars=overview_max_chars
+            )
             ls_mgr.save_all_caches()
         finally:
             ls_mgr.stop_all()
-
-        write_code_map(code_map, output_dir, overview_max_chars=overview_max_chars)
 
         coverage_summary = ", ".join(f"{ls_id}={coverage.call_hierarchy}" for ls_id, coverage in sorted(code_map.coverage.items()))
         click.echo("Generated Serena code map")

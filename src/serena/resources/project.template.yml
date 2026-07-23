@@ -52,6 +52,11 @@ activation_command:
 # must be a positive number.
 activation_command_timeout: 180
 
+# whether to (re-)export the static code map (.serena/code-map, see `serena project export-code-map`)
+# in the background whenever the project is activated (LSP backend only).
+# The export is incremental in effect: files whose content did not change are not rewritten.
+export_code_map_on_activation: false
+
 # line ending convention to use when writing source files.
 # Possible values: unset (use global setting), "lf", "crlf", or "native" (platform default)
 # This does not affect Serena's own files (e.g. memories and configuration files), which always use native line endings.

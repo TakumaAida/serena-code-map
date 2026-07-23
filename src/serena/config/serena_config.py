@@ -331,6 +331,7 @@ class ProjectConfig(SharedConfig, ModeSelectionDefinitionWithAddedModes):
     encoding: str = DEFAULT_SOURCE_FILE_ENCODING
     activation_command: str | None = None
     activation_command_timeout: float = 180.0
+    export_code_map_on_activation: bool = False
 
     # internal fields which are not mapped to/from the configuration file (must start with "_")
     _local_override_keys: list[str] = field(default_factory=list)

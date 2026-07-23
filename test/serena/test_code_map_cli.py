@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 import pytest
 from click.testing import CliRunner
 
-import serena.code_map
+import serena.code_map.export
 from serena.cli import ProjectCommands
 from serena.code_map.model import CodeMap, CodeMapSymbol, LanguageServerCoverage, SourcePosition, SourceRange
 
@@ -97,7 +97,7 @@ def mocked_build_env(monkeypatch):
                 raise code_map_holder["build_error"]
             return code_map_holder["code_map"]
 
-    monkeypatch.setattr(serena.code_map, "CodeMapBuilder", FakeCodeMapBuilder)
+    monkeypatch.setattr(serena.code_map.export, "CodeMapBuilder", FakeCodeMapBuilder)
     return SimpleEnv(invocation=invocation, ls_manager=ls_manager, code_map_holder=code_map_holder)
 
 
@@ -186,3 +186,79 @@ class TestExportCodeMapCli:
         result = cli_runner.invoke(ProjectCommands.export_code_map, [temp_project_dir])
         assert result.exit_code != 0
         mocked_build_env.ls_manager.stop_all.assert_called_once()
+
+
+class TestIndexExportsCodeMap:
+    def test_index_exports_code_map_by_default(self, cli_runner, temp_project_dir, mocked_build_env) -> None:
+        result = cli_runner.invoke(ProjectCommands.index, [temp_project_dir])
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert "Exported code map" in result.output
+        assert os.path.isfile(os.path.join(temp_project_dir, ".serena", "code-map", "overview.md"))
+
+    def test_index_with_no_code_map_skips_export(self, cli_runner, temp_project_dir, mocked_build_env) -> None:
+        result = cli_runner.invoke(ProjectCommands.index, [temp_project_dir, "--no-code-map"])
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert mocked_build_env.invocation.build_count == 0
+        assert not os.path.exists(os.path.join(temp_project_dir, ".serena", "code-map"))
+
+    def test_index_succeeds_even_if_code_map_export_fails(self, cli_runner, temp_project_dir, mocked_build_env) -> None:
+        mocked_build_env.code_map_holder["build_error"] = RuntimeError("boom")
+        result = cli_runner.invoke(ProjectCommands.index, [temp_project_dir])
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert "Code map export failed" in result.output
+
+
+class TestActivationExport:
+    def _make_agent_mock(self, export_enabled: bool, is_lsp: bool = True) -> MagicMock:
+        agent = MagicMock()
+        agent._active_project.project_config.export_code_map_on_activation = export_enabled
+        agent.get_language_backend.return_value.is_lsp.return_value = is_lsp
+        return agent
+
+    def test_activation_exports_code_map_when_enabled(self, monkeypatch) -> None:
+        from serena.agent import SerenaAgent
+
+        export_mock = MagicMock()
+        monkeypatch.setattr(serena.code_map.export, "export_project_code_map", export_mock)
+        agent = self._make_agent_mock(export_enabled=True)
+
+        SerenaAgent._maybe_export_code_map(agent)
+
+        export_mock.assert_called_once_with(agent._active_project, agent._active_project.get_language_server_manager_or_raise.return_value)
+
+    def test_activation_skips_export_when_disabled(self, monkeypatch) -> None:
+        from serena.agent import SerenaAgent
+
+        export_mock = MagicMock()
+        monkeypatch.setattr(serena.code_map.export, "export_project_code_map", export_mock)
+        agent = self._make_agent_mock(export_enabled=False)
+
+        SerenaAgent._maybe_export_code_map(agent)
+
+        export_mock.assert_not_called()
+
+    def test_activation_skips_export_for_non_lsp_backend(self, monkeypatch) -> None:
+        from serena.agent import SerenaAgent
+
+        export_mock = MagicMock()
+        monkeypatch.setattr(serena.code_map.export, "export_project_code_map", export_mock)
+        agent = self._make_agent_mock(export_enabled=True, is_lsp=False)
+
+        SerenaAgent._maybe_export_code_map(agent)
+
+        export_mock.assert_not_called()
+
+    def test_activation_export_failure_does_not_raise(self, monkeypatch) -> None:
+        from serena.agent import SerenaAgent
+
+        export_mock = MagicMock(side_effect=RuntimeError("boom"))
+        monkeypatch.setattr(serena.code_map.export, "export_project_code_map", export_mock)
+        agent = self._make_agent_mock(export_enabled=True)
+
+        SerenaAgent._maybe_export_code_map(agent)  # must not raise
+
+    def test_project_config_flag_defaults_to_false(self) -> None:
+        from serena.config.serena_config import ProjectConfig
+
+        config = ProjectConfig(project_name="p", language_servers=[])
+        assert config.export_code_map_on_activation is False

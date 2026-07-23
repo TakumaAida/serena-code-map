@@ -60,6 +60,11 @@ uvx --from git+https://github.com/TakumaAida/serena-code-map serena project expo
 
 プロジェクトが未登録の場合は自動で `project.yml` が作成されます。コードを大きく変更したら再実行してください(差分がなければファイルは書き換わりません)。
 
+**自動生成** — Serena がプロジェクト状態ファイルを作るタイミングに合わせて、コードマップも自動で生成されます:
+
+- `serena project index` 実行時にインデックス作成後、コードマップも生成されます(`--no-code-map` で無効化)
+- `project.yml` で `export_code_map_on_activation: true` を設定すると、MCP でのプロジェクト activation 時(言語サーバー起動と同じバックグラウンド初期化)に自動で再生成されます。内容に変化がなければファイルは書き換わりません
+
 ### 2. MCP サーバーとしての利用
 
 MCP サーバーは本家と同じ `serena start-mcp-server` です。この fork を指定して起動します。
