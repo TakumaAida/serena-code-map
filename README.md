@@ -1,3 +1,10 @@
+> [!NOTE]
+> **Unofficial fork of [oraios/serena](https://github.com/oraios/serena).**
+> This fork adds a static code map exporter (`serena project export-code-map`) that turns
+> LSP-derived symbols, docs and call/type relations into deterministic Markdown/JSONL files
+> under `.serena/code-map/`. It is not affiliated with or endorsed by Oraios AI.
+> Serena itself is MIT-licensed; see [LICENSE](LICENSE).
+
 <p align="center" style="text-align:center;">
   <img src="resources/serena-logo.svg#gh-light-mode-only" style="width:500px">
   <img src="resources/serena-logo-dark-mode.svg#gh-dark-mode-only" style="width:500px">
