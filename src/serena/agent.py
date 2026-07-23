@@ -1044,6 +1044,13 @@ class SerenaAgent:
             elif self._active_tools.contains_tool_class(OnboardingTool):
                 msg += "Onboarding has not been performed yet, you should call Serena's `onboarding` tool now to set up project memories."
 
+        # add pointer to the static code map (if one exists or is being generated for this project)
+        from serena.code_map.export import code_map_activation_notice
+
+        code_map_notice = code_map_activation_notice(proj)
+        if code_map_notice is not None:
+            msg += f"\n{code_map_notice}"
+
         # add prompts for modes that were dynamically activated by the project
         modes_with_prompts = self._project_prompt_status.get_modes_with_prompts_to_be_provided_for_project_activation(session_id)
         if modes_with_prompts:

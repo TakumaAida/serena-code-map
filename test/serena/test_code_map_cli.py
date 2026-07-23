@@ -262,3 +262,68 @@ class TestActivationExport:
 
         config = ProjectConfig(project_name="p", language_servers=[])
         assert config.export_code_map_on_activation is False
+
+
+class TestActivationNotice:
+    """The project activation message must point the agent to an existing code map automatically."""
+
+    def _make_project_mock(self, project_root: str, export_on_activation: bool = False) -> MagicMock:
+        project = MagicMock()
+        project.project_root = project_root
+        project.project_name = "p"
+        project.is_newly_created = False
+        project.project_config.encoding = "utf-8"
+        project.project_config.initial_prompt = ""
+        project.project_config.export_code_map_on_activation = export_on_activation
+        return project
+
+    def test_notice_when_code_map_exists(self, tmp_path) -> None:
+        from serena.code_map.export import code_map_activation_notice
+
+        code_map_dir = tmp_path / ".serena" / "code-map"
+        code_map_dir.mkdir(parents=True)
+        (code_map_dir / "overview.md").write_text("# Code Map Overview\n", encoding="utf-8")
+
+        notice = code_map_activation_notice(self._make_project_mock(str(tmp_path)))
+        assert notice is not None
+        assert ".serena/code-map/overview.md" in notice
+
+    def test_notice_when_export_on_activation_is_enabled_but_map_not_yet_generated(self, tmp_path) -> None:
+        from serena.code_map.export import code_map_activation_notice
+
+        notice = code_map_activation_notice(self._make_project_mock(str(tmp_path), export_on_activation=True))
+        assert notice is not None
+        assert "generated in the background" in notice
+
+    def test_no_notice_without_code_map(self, tmp_path) -> None:
+        from serena.code_map.export import code_map_activation_notice
+
+        assert code_map_activation_notice(self._make_project_mock(str(tmp_path))) is None
+
+    def test_activation_message_includes_notice(self, tmp_path) -> None:
+        from serena.agent import SerenaAgent
+
+        code_map_dir = tmp_path / ".serena" / "code-map"
+        code_map_dir.mkdir(parents=True)
+        (code_map_dir / "overview.md").write_text("# Code Map Overview\n", encoding="utf-8")
+
+        agent = MagicMock()
+        agent._active_project = self._make_project_mock(str(tmp_path))
+        agent._active_tools.contains_tool_class.return_value = False
+        agent._project_prompt_status.get_modes_with_prompts_to_be_provided_for_project_activation.return_value = []
+        agent._project_prompt_status.is_project_activation_message_already_provided.return_value = False
+
+        message = SerenaAgent.get_project_activation_message(agent, "session-1")
+        assert ".serena/code-map/overview.md" in message
+
+    def test_activation_message_has_no_notice_without_code_map(self, tmp_path) -> None:
+        from serena.agent import SerenaAgent
+
+        agent = MagicMock()
+        agent._active_project = self._make_project_mock(str(tmp_path))
+        agent._active_tools.contains_tool_class.return_value = False
+        agent._project_prompt_status.get_modes_with_prompts_to_be_provided_for_project_activation.return_value = []
+        agent._project_prompt_status.is_project_activation_message_already_provided.return_value = False
+
+        message = SerenaAgent.get_project_activation_message(agent, "session-1")
+        assert "code-map" not in message

@@ -20,9 +20,29 @@ log = logging.getLogger(__name__)
 
 DEFAULT_CODE_MAP_DIR_PARTS = (".serena", "code-map")
 
+CODE_MAP_ACTIVATION_NOTICE = (
+    "A static code map of this project is available under `.serena/code-map/`. "
+    "Read `.serena/code-map/overview.md` first to get an overview of the project structure, and check the relevant "
+    "file under `.serena/code-map/modules/` before performing a broad search of the repository. "
+    "Treat the code map as a static snapshot: use Serena's tools for exact live symbol, reference, and editing operations."
+)
+
 
 def default_code_map_dir(project_root: str) -> str:
     return os.path.join(project_root, *DEFAULT_CODE_MAP_DIR_PARTS)
+
+
+def code_map_activation_notice(project: "Project") -> str | None:
+    """
+    Returns the notice to include in the project activation message, telling the agent how to use
+    the static code map — or None if the project has no code map (and none is being generated).
+    """
+    overview_path = os.path.join(default_code_map_dir(str(project.project_root)), "overview.md")
+    if os.path.isfile(overview_path):
+        return CODE_MAP_ACTIVATION_NOTICE
+    if project.project_config.export_code_map_on_activation:
+        return CODE_MAP_ACTIVATION_NOTICE + " (The code map is currently being generated in the background and will be available shortly.)"
+    return None
 
 
 def export_project_code_map(

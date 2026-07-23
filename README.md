@@ -85,13 +85,15 @@ args = ["--from", "git+https://github.com/TakumaAida/serena-code-map", "serena",
 
 その他のクライアントの設定方法は[本家 README](https://github.com/oraios/serena#readme) と同じです(`--from` の参照先をこの fork に変えるだけです)。
 
-### 3. エージェントへの案内
+### 3. エージェントへの案内(自動)
 
-生成された `.serena/code-map/AGENTS_SNIPPET.md` の内容を、プロジェクトの `AGENTS.md`(または `CLAUDE.md`)に追記してください。エージェントは次の運用になります:
+コードマップが存在するプロジェクトでは、**プロジェクト activation 時のメッセージに使い方の案内が自動で含まれる**ため、`AGENTS.md` への手動追記は不要です。エージェントは次の運用になります:
 
-1. セッション開始時に `overview.md` を読む
+1. activation メッセージの案内に従い、まず `overview.md` を読む
 2. 必要なファイルの詳細だけ `modules/*.md` から読む
 3. 正確な最新のシンボル確認・参照検索・編集には従来どおり Serena MCP を使う
+
+MCP を経由しない運用(例: コードマップだけを使う)の場合は、生成された `.serena/code-map/AGENTS_SNIPPET.md` の内容をプロジェクトの `AGENTS.md`(または `CLAUDE.md`)に追記してください。
 
 ## ライセンス
 
