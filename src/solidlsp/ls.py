@@ -2306,6 +2306,156 @@ class SolidLanguageServer(ABC):
 
         return ls_types.SignatureHelp(**response)  # type: ignore
 
+    def request_call_hierarchy_items(
+        self, relative_file_path: str, line: int, column: int, file_buffer: LSPFileBuffer | None = None
+    ) -> list[lsp_types.CallHierarchyItem]:
+        """
+        Raise a [textDocument/prepareCallHierarchy](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_prepareCallHierarchy)
+        request to the Language Server to obtain the call hierarchy items for the symbol at the given position.
+        The returned items can be passed to `request_call_hierarchy_outgoing_from_items` or
+        `request_call_hierarchy_incoming_from_items`.
+
+        :param relative_file_path: The relative path of the file containing the symbol
+        :param line: The line number of the symbol
+        :param column: The column number of the symbol
+        :param file_buffer: an optional file buffer if the file is already opened.
+        :return: the list of call hierarchy items; an empty list if the symbol cannot serve as a call hierarchy root.
+        """
+        if not self.server_started:
+            log.error("request_call_hierarchy_items called before Language Server started")
+            raise SolidLSPException("Language Server not started")
+        with self._open_file_context(relative_file_path, file_buffer=file_buffer):
+            response = self.server.send.prepare_call_hierarchy(
+                {
+                    "textDocument": {"uri": self._resolve_file_uri(relative_file_path)},
+                    "position": {"line": line, "character": column},
+                }
+            )
+        return response or []
+
+    def request_call_hierarchy_outgoing_from_items(
+        self, items: list[lsp_types.CallHierarchyItem]
+    ) -> list[lsp_types.CallHierarchyOutgoingCall]:
+        """
+        Raise [callHierarchy/outgoingCalls](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#callHierarchy_outgoingCalls)
+        requests for the given call hierarchy items (as previously obtained via `request_call_hierarchy_items`)
+        and return the combined results.
+        """
+        outgoing_calls: list[lsp_types.CallHierarchyOutgoingCall] = []
+        for item in items:
+            response = self.server.send.outgoing_calls({"item": item})
+            if response:
+                outgoing_calls.extend(response)
+        return outgoing_calls
+
+    def request_call_hierarchy_incoming_from_items(
+        self, items: list[lsp_types.CallHierarchyItem]
+    ) -> list[lsp_types.CallHierarchyIncomingCall]:
+        """
+        Raise [callHierarchy/incomingCalls](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#callHierarchy_incomingCalls)
+        requests for the given call hierarchy items (as previously obtained via `request_call_hierarchy_items`)
+        and return the combined results.
+        """
+        incoming_calls: list[lsp_types.CallHierarchyIncomingCall] = []
+        for item in items:
+            response = self.server.send.incoming_calls({"item": item})
+            if response:
+                incoming_calls.extend(response)
+        return incoming_calls
+
+    def request_call_hierarchy_outgoing(
+        self, relative_file_path: str, line: int, column: int, file_buffer: LSPFileBuffer | None = None
+    ) -> list[lsp_types.CallHierarchyOutgoingCall]:
+        """
+        Retrieves the outgoing calls of the symbol at the given position, combining
+        `request_call_hierarchy_items` and `request_call_hierarchy_outgoing_from_items`.
+        """
+        items = self.request_call_hierarchy_items(relative_file_path, line, column, file_buffer=file_buffer)
+        return self.request_call_hierarchy_outgoing_from_items(items)
+
+    def request_call_hierarchy_incoming(
+        self, relative_file_path: str, line: int, column: int, file_buffer: LSPFileBuffer | None = None
+    ) -> list[lsp_types.CallHierarchyIncomingCall]:
+        """
+        Retrieves the incoming calls of the symbol at the given position, combining
+        `request_call_hierarchy_items` and `request_call_hierarchy_incoming_from_items`.
+        """
+        items = self.request_call_hierarchy_items(relative_file_path, line, column, file_buffer=file_buffer)
+        return self.request_call_hierarchy_incoming_from_items(items)
+
+    def request_type_hierarchy_items(
+        self, relative_file_path: str, line: int, column: int, file_buffer: LSPFileBuffer | None = None
+    ) -> list[lsp_types.TypeHierarchyItem]:
+        """
+        Raise a [textDocument/prepareTypeHierarchy](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_prepareTypeHierarchy)
+        request to the Language Server to obtain the type hierarchy items for the symbol at the given position.
+        The returned items can be passed to `request_type_hierarchy_supertypes_from_items` or
+        `request_type_hierarchy_subtypes_from_items`.
+
+        :param relative_file_path: The relative path of the file containing the symbol
+        :param line: The line number of the symbol
+        :param column: The column number of the symbol
+        :param file_buffer: an optional file buffer if the file is already opened.
+        :return: the list of type hierarchy items; an empty list if the symbol cannot serve as a type hierarchy root.
+        """
+        if not self.server_started:
+            log.error("request_type_hierarchy_items called before Language Server started")
+            raise SolidLSPException("Language Server not started")
+        with self._open_file_context(relative_file_path, file_buffer=file_buffer):
+            response = self.server.send.prepare_type_hierarchy(
+                {
+                    "textDocument": {"uri": self._resolve_file_uri(relative_file_path)},
+                    "position": {"line": line, "character": column},
+                }
+            )
+        return response or []
+
+    def request_type_hierarchy_supertypes_from_items(self, items: list[lsp_types.TypeHierarchyItem]) -> list[lsp_types.TypeHierarchyItem]:
+        """
+        Raise [typeHierarchy/supertypes](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#typeHierarchy_supertypes)
+        requests for the given type hierarchy items (as previously obtained via `request_type_hierarchy_items`)
+        and return the combined results.
+        """
+        supertypes: list[lsp_types.TypeHierarchyItem] = []
+        for item in items:
+            response = self.server.send.type_hierarchy_supertypes({"item": item})
+            if response:
+                supertypes.extend(response)
+        return supertypes
+
+    def request_type_hierarchy_subtypes_from_items(self, items: list[lsp_types.TypeHierarchyItem]) -> list[lsp_types.TypeHierarchyItem]:
+        """
+        Raise [typeHierarchy/subtypes](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#typeHierarchy_subtypes)
+        requests for the given type hierarchy items (as previously obtained via `request_type_hierarchy_items`)
+        and return the combined results.
+        """
+        subtypes: list[lsp_types.TypeHierarchyItem] = []
+        for item in items:
+            response = self.server.send.type_hierarchy_subtypes({"item": item})
+            if response:
+                subtypes.extend(response)
+        return subtypes
+
+    def request_type_hierarchy_supertypes(
+        self, relative_file_path: str, line: int, column: int, file_buffer: LSPFileBuffer | None = None
+    ) -> list[lsp_types.TypeHierarchyItem]:
+        """
+        Retrieves the supertypes of the type symbol at the given position, combining
+        `request_type_hierarchy_items` and `request_type_hierarchy_supertypes_from_items`.
+        """
+        items = self.request_type_hierarchy_items(relative_file_path, line, column, file_buffer=file_buffer)
+        return self.request_type_hierarchy_supertypes_from_items(items)
+
+    def request_type_hierarchy_subtypes(
+        self, relative_file_path: str, line: int, column: int, file_buffer: LSPFileBuffer | None = None
+    ) -> list[lsp_types.TypeHierarchyItem]:
+        """
+        Retrieves the subtypes of the type symbol at the given position, combining
+        `request_type_hierarchy_items` and `request_type_hierarchy_subtypes_from_items`.
+        """
+        items = self.request_type_hierarchy_items(relative_file_path, line, column, file_buffer=file_buffer)
+        return self.request_type_hierarchy_subtypes_from_items(items)
+
     def create_symbol_body(
         self,
         symbol: ls_types.UnifiedSymbolInformation,
