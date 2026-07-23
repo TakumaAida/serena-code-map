@@ -1,265 +1,93 @@
-<p align="center" style="text-align:center;">
-  <img src="resources/serena-logo.svg#gh-light-mode-only" style="width:500px">
-  <img src="resources/serena-logo-dark-mode.svg#gh-dark-mode-only" style="width:500px">
-</p>
-
-<h3 align="center">
-    The IDE for Your Coding Agent
-</h3>
-
-<div align="center">
-  <a href="https://discord.com/invite/cVUNQmnV4r"><img src="https://img.shields.io/badge/discord-join-5865F2?style=flat-square&labelColor=0a0e14&logo=discord&logoColor=5865F2" alt="discord"></a>
-  <a href="https://github.com/oraios/serena/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-b0e8ff?style=flat-square&labelColor=0a0e14" alt="license"></a>
-</div>
-<br>
-
-
-* Serena provides essential **semantic code retrieval, editing, refactoring and debugging tools** that are akin to an IDE's capabilities,
-  operating at the symbol level and exploiting relational structure.
-* It integrates with any client/LLM via the model context protocol (**MCP**).
-  
-Serena's **agent-first tool design** involves robust high-level abstractions, distinguishing it from
-approaches that rely on low-level concepts like line numbers or primitive search patterns.
-
-Practically, this means that your agent operates **faster, more efficiently and more reliably**, especially in larger and
-more complex codebases.
-
-> [!IMPORTANT]
-> Do not install Serena via an MCP or plugin marketplace! They contain outdated and suboptimal installation commands. 
-> Instead, follow our [Quick Start](#quick-start) instructions.
-
-## Quick Demo
-
-https://github.com/user-attachments/assets/8d11646e-b80e-4723-b9d7-32d6101b5f58
-
-:tv: Longer video: [Introduction to Serena in 5 Minutes (YouTube)](https://www.youtube.com/watch?v=5QN7gN1KYLA)
-
-## What Our "End Users" Say
-
-While it is humans who download and set up Serena, our end users are essentially AI agents.
-As the ones actually applying Serena's tools, they are in the best position to evaluate Serena.
-
-We crafted an unbiased evaluation prompt that leads the agent to perform ~20 routine coding tasks, 
-representative of everyday development work, 
-in order to estimate the value added by Serena's tools when used alongside its own built-ins. 
-
-Here's a one-sentence summary of what the agents had to say:
-
-**Opus 4.6 (high) in Claude Code on a large Python codebase:**
-> "Serena's IDE-backed semantic tools are the single most impactful addition to my toolkit – cross-file renames, moves, and reference lookups that
-would cost me 8–12 careful, error-prone steps collapse into one atomic call, and I would absolutely ask any developer I work with to set them up."
-
-**GPT 5.4 (high) in Codex CLI on a Java codebase:**
-> "As a coding AI agent, I would ask my owner to add Serena because it gives me the missing IDE-level understanding of symbols, references, and
-refactorings, turning fragile text surgery into calmer, faster, more confident code changes where semantics matter."
-
-**GPT 5.4 (medium) in Copilot CLI on a large, multi-language monorepo:**
-> "As a coding agent, I’d absolutely ask my owner to add Serena because it makes me noticeably sharper and calmer on
-real code – especially symbol-aware navigation, cross-file refactors, and monorepo dependency jumps – while I still lean
-on built-ins for tiny text edits and non-code work."
-
-Different agents in different settings independently converge on the same verdict.
-
-_Give your agent the tools it has been asking for and add Serena MCP to your client!_
-
-See our [documentation](https://oraios.github.io/serena/04-evaluation/000_evaluation-intro.html) for the full methodology and much more detailed evaluation results, or run your own evaluation on a project of your choice.
- 
-
-## How Serena Works
-
-Serena provides the necessary [tools](https://oraios.github.io/serena/01-about/035_tools.html) for coding workflows, 
-but an LLM is required to do the actual work, orchestrating tool use.
-
-Serena can extend the functionality of your existing AI client via the **model context protocol (MCP)**.
-Most modern AI chat clients directly support MCP, including
-* terminal-based clients like Claude Code, Codex, OpenCode, or Gemini-CLI,
-* IDEs and IDE assistant plugins for VSCode, Cursor and JetBrains IDEs (Copilot, Junie, JetBrains AI Assistant, etc.),
-* desktop and web clients like Claude Desktop, Codex App, or OpenWebUI.
-
-<img src="resources/serena-block-diagram.svg">
-
-:tv: See also: [Introduction to Serena in 5 Minutes (YouTube)](https://www.youtube.com/watch?v=5QN7gN1KYLA)
-
-To connect the Serena MCP server to your client, you either
-  * provide the client with a launch command that allows it to start the MCP server, or
-  * start the Serena MCP server yourself in HTTP mode and provide the client with the URL.
-
-See the [Quick Start](#quick-start) section below for information on how to get started.
-
-## Programming Language Support & Semantic Analysis Capabilities
-
-Serena provides a set of versatile code querying and editing functionalities
-based on symbolic understanding of the code.
-Equipped with these capabilities, your agent discovers and edits code just like a seasoned developer
-making use of an IDE's capabilities would.
-Serena can efficiently find the right context and do the right thing even in very large and
-complex projects!
-
-There are two alternative technologies powering these capabilities:
-
-* **Language servers** implementing the language server protocol (LSP) — the free/open-source alternative 
-  which is used by default.
-* **The Serena JetBrains Plugin**, which leverages the powerful code analysis and editing
-  capabilities of your JetBrains IDE (paid plugin; free trial available).
-
-You can choose either of these backends depending on your preferences and requirements.
-
-### Language Servers
-
-Serena incorporates a powerful abstraction layer for the integration of language servers that implement the language server protocol (LSP). 
-The underlying language servers are typically open-source projects or at least freely available for use.
-
-When using Serena's language server backend, we provide **support for over 40 programming languages**, including
-Ada / SPARK, AL, Angular, Ansible, Bash, BSL, C#, C/C++, Clojure, Crystal, CUE, Dart, Elixir, Elm, Erlang, Fortran, F#, GDScript, GLSL, Go, Groovy, Haskell, Haxe, HLSL, HTML, Java, JavaScript, JSON, Julia, Kotlin, LaTeX, Lean 4, Lua, Luau, Markdown, MATLAB, mSL, Nix, OCaml, Perl, PHP, PowerShell, Python, R, Ruby, Rust, Scala, SCSS / Sass / CSS, Solidity, Svelte, Swift, TOML, TypeScript, WGSL, YAML, and Zig.
-
-### The Serena JetBrains Plugin
-
-The paid Serena JetBrains Plugin (free trial available)
-leverages the powerful code analysis capabilities of your JetBrains IDE.
-The plugin naturally supports all programming languages and frameworks that are supported by JetBrains IDEs,
-including IntelliJ IDEA, PyCharm, Android Studio, WebStorm, PhpStorm, RubyMine, GoLand, and potentially others (Rider and CLion are unsupported though).
-
-<a href="https://plugins.jetbrains.com/plugin/28946-serena/"><img src="docs/_static/images/jetbrains-marketplace-button.png"></a>
-
-See our [documentation page](https://oraios.github.io/serena/02-usage/025_jetbrains_plugin.html) for further details and instructions on how to apply the plugin.
-
-## Features
-
-Serena provides a wide range of tools for efficient code retrieval, editing and refactoring, as well as 
-a memory system for long-lived agent workflows.
-
-Given its large scope, Serena adapts to your needs by offering a multi-layered configuration system.
-
-<details>
-<summary>Details</summary>
-
-### Retrieval
-
-Serena's retrieval tools allow agents to explore codebases at the symbol level, understanding structure and relationships
-without reading entire files.
-
-| Capability                       | Language Servers | JetBrains Plugin |
-|----------------------------------|------------------|------------------|
-| find symbol                      | yes              | yes              |
-| symbol overview (file outline)   | yes              | yes              |
-| find referencing symbols         | yes              | yes              |
-| search in project dependencies   | --               | yes              |
-| type hierarchy                   | --               | yes              |
-| find declaration                 | yes*             | yes              |
-| find implementations             | yes**            | yes              |
-| query external projects          | yes              | yes              |
-| diagnostics/inspections          | yes              | yes              |
-
-*: Will generally not work for declarations in external dependencies. <br>
-**: Only available for some languages, limited by the language server functionality.
-
-### Refactoring
-
-Without precise refactoring tools, agents are forced to resort to unreliable and expensive search and replace operations.
-
-| Capability                                | Language Servers   | JetBrains Plugin                  |
-|-------------------------------------------|--------------------|-----------------------------------|
-| rename                                    | yes (only symbols) | yes (symbols, files, directories) |
-| move (symbol, file, directory)            | --                 | yes                               |
-| inline                                    | --                 | yes                               |
-| propagate deletions (remove unused code)  | --                 | yes                               |
-
-### Symbolic Editing
-
-Serena's symbolic editing tools are less error-prone and much more token-efficient than typical alternatives.
-
-| Capability             | Language Servers  | JetBrains Plugin |
-|------------------------|-------------------|------------------|
-| replace symbol body    | yes               | yes              |
-| insert after symbol    | yes               | yes              |
-| insert before symbol   | yes               | yes              |
-| safe delete            | yes               | yes              |
-
-### Interactive Debugging
-
-Exclusive to the JetBrains plugin, Serena supports a highly general debugging tool,
-which allows an agent to set breakpoints, inspect variables, evaluate expressions and control execution flow 
-via a persistent REPL-style interface.
-
-### Basic Features
-
-Beyond its semantic capabilities, Serena includes a set of basic utilities for completeness.
-When Serena is used inside an agentic harness such as Claude Code or Codex, these tools are typically disabled by default,
-since the surrounding harness already provides overlapping file, search, and shell capabilities.
-
-- **`search_for_pattern`** – flexible regex search across the codebase 
-- **`replace_content`** – agent-optimised regex-based and literal text replacement
-- **`list_dir` / `find_file`** – directory listing and file search
-- **`read_file`** – read files or file chunks
-- **`execute_shell_command`** – run shell commands (e.g. builds, tests, linters)
-
-### Memory Management
-
-A memory system is elemental to long-lived agent workflows, especially when knowledge is to be shared across
-sessions, users and projects.
-Despite its simplicity, we received positive feedback from many users who tend to combine Serena's memory management system with their
-agent's internal system (e.g., `AGENTS.md` files).
-It can easily be disabled if you prefer to use something else.
-
-### Configurability
-
-Active tools, tool descriptions, prompts, language backend details and many other aspects of Serena
-can be flexibly configured on a per-case basis by simply adjusting a few lines of YAML.
-To achieve this, Serena offers multiple levels of (composable) configuration:
-
-* global configuration
-* MCP launch command (CLI) configuration
-* per-project configuration (with local overrides)
-* execution context-specific configuration (e.g. for particular clients)
-* dynamically composable configuration fragments (modes)
-
-</details>
-
-## Quick Start
-
-**Prerequisites**. Serena is managed by *uv*, and [installing uv](https://docs.astral.sh/uv/getting-started/installation/) is the only required prerequisite.
+# Serena Code Map
 
 > [!NOTE]
-> When using the language server backend, some additional dependencies may need to be installed to support certain languages;
-> see the [Language Support](https://oraios.github.io/serena/01-about/020_programming-languages.html) page for details.
+> **Unofficial fork of [oraios/serena](https://github.com/oraios/serena).**
+> Serena 本体の機能・セットアップ・設定については **[本家 Serena の README](https://github.com/oraios/serena#readme)** を参照してください。
+> 本リポジトリの README では、この fork で追加した機能とその導入方法のみを説明します。
+> Oraios AI とは無関係であり、公式プロダクトではありません。
 
-**Install Serena**. Serena is installed via uv as follows:
+## この fork で追加した機能
 
-```bash
-uv tool install -p 3.13 serena-agent
-```
-
-After successful installation, the command `serena` should be available in your shell.
-
-**Initialise Serena**. To initialise Serena and verify that your setup works correctly, simply run:
+コーディングエージェントのクレジット消費(初見リポジトリの探索・呼び出し関係の反復調査・毎セッションの同じ構造の再調査)を抑えるための、**静的コードマップ生成 CLI** を追加しています。
 
 ```bash
-serena init
+serena project export-code-map [PROJECT]
 ```
 
-By default, this will set up Serena to use the language server backend. To use the JetBrains backend instead, add the parameters `-b JetBrains` 
-(see the [JetBrains Plugin documentation page](https://oraios.github.io/serena/02-usage/025_jetbrains_plugin.html) for additional usage details).  
-Either way, you should receive a success message indicating that Serena has been initialised successfully.
+Serena が LSP から取得できる情報(document symbols / hover / call hierarchy / type hierarchy)だけを使い、LLM を一切使わずにローカルで次の成果物を生成します。
 
-**Configuring Your Client**. To connect Serena to your preferred MCP client, you typically need to [configure a launch command in your client](https://oraios.github.io/serena/02-usage/030_clients.html).
-Follow the link for specific instructions on how to set up Serena for Claude Code, Codex, Claude Desktop, MCP-enabled IDEs and other clients (such as local and web-based GUIs). 
+```text
+.serena/code-map/
+├── overview.md        # 小さな起動時マップ(coverage、主要クラス、型依存、call root候補)
+├── manifest.json      # 解析範囲・言語サーバーごとの対応状況
+├── symbols.jsonl      # 全シンボル(ID・シグネチャ・ドキュメント・位置)
+├── edges.jsonl        # 関係グラフ(CONTAINS / CALLS / TYPE_SUPERTYPE / CLASS_DEPENDS_ON)
+├── diagnostics.jsonl  # 生成時の警告・エラー
+├── AGENTS_SNIPPET.md  # AGENTS.md / CLAUDE.md に貼るエージェント向け案内
+└── modules/           # ソースファイル単位の詳細 Markdown(Calls / Called by 付き)
+    └── <relative-source-path>.md
+```
 
-> [!TIP]
-> While getting started quickly is easy, Serena is a powerful toolkit with many configuration options.
-> We highly recommend reading through the [user guide](https://oraios.github.io/serena/02-usage/000_intro.html) to get the most out of Serena.
-> 
-> Specifically, we recommend to read about ...
->   * [Serena's project-based workflow](https://oraios.github.io/serena/02-usage/040_workflow.html) and
->   * [configuring Serena](https://oraios.github.io/serena/02-usage/050_configuration.html).
+### 特徴
 
-## User Guide
+- **決定的な出力** — 同じコードからは同じバイト列を生成。内容が変わらないファイルは再書き込みしないため、Git 差分やエージェントの prompt cache を汚しません
+- **LLM 不使用** — 解析は LSP とローカル処理のみ。コメントがない箇所で役割を捏造しません
+- **既存の Serena を壊さない** — 新しい MCP ツールは追加せず、既存の symbol tools は従来どおり動作します
+- **JavaDoc / docstring 保持** — hover から取得した signature・`@param`・`@return` 等を `signature` / `documentation` として構造化保存
+- **Call Hierarchy 非対応の言語サーバーでも動作** — 対応状況は `manifest.json` の coverage に記録され、export 自体は成功します
 
-Please refer to the [user guide](https://oraios.github.io/serena/02-usage/000_intro.html) for detailed instructions on how to use Serena effectively.
+### 主なオプション
 
-## Acknowledgements
+```text
+--output PATH                    出力先(デフォルト: <project>/.serena/code-map)
+--include-docs / --no-include-docs
+--include-calls / --no-include-calls
+--include-type-hierarchy / --no-include-type-hierarchy
+--hover-budget-seconds FLOAT     hover の時間予算(0 = 無制限、デフォルト)
+--strict                         未対応 capability やエラーを非ゼロ exit にする
+--overview-max-chars INTEGER     overview.md のサイズ上限(デフォルト: 32768)
+```
 
-A significant part of Serena, especially support for various languages, was contributed by the open source community.
-We are very grateful for the many contributors who made this possible and who played an important role in making Serena
-what it is today.
+## 導入方法
 
-<!-- mcp-name: io.github.oraios/serena -->
+### 1. コードマップの生成
+
+インストール不要で `uvx` から直接実行できます([uv](https://docs.astral.sh/uv/) が必要):
+
+```bash
+uvx --from git+https://github.com/TakumaAida/serena-code-map serena project export-code-map /path/to/your/project
+```
+
+プロジェクトが未登録の場合は自動で `project.yml` が作成されます。コードを大きく変更したら再実行してください(差分がなければファイルは書き換わりません)。
+
+### 2. MCP サーバーとしての利用
+
+MCP サーバーは本家と同じ `serena start-mcp-server` です。この fork を指定して起動します。
+
+**Claude Code:**
+
+```bash
+claude mcp add serena -- uvx --from git+https://github.com/TakumaAida/serena-code-map serena start-mcp-server --context ide-assistant --project $(pwd)
+```
+
+**Codex** (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.serena]
+command = "uvx"
+args = ["--from", "git+https://github.com/TakumaAida/serena-code-map", "serena", "start-mcp-server", "--context", "codex"]
+```
+
+その他のクライアントの設定方法は[本家 README](https://github.com/oraios/serena#readme) と同じです(`--from` の参照先をこの fork に変えるだけです)。
+
+### 3. エージェントへの案内
+
+生成された `.serena/code-map/AGENTS_SNIPPET.md` の内容を、プロジェクトの `AGENTS.md`(または `CLAUDE.md`)に追記してください。エージェントは次の運用になります:
+
+1. セッション開始時に `overview.md` を読む
+2. 必要なファイルの詳細だけ `modules/*.md` から読む
+3. 正確な最新のシンボル確認・参照検索・編集には従来どおり Serena MCP を使う
+
+## ライセンス
+
+本家 Serena と同じく [MIT License](LICENSE) です。Copyright は Oraios AI に帰属します。
