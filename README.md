@@ -60,6 +60,11 @@ uvx --from git+https://github.com/TakumaAida/serena-code-map serena project expo
 
 プロジェクトが未登録の場合は自動で `project.yml` が作成されます。コードを大きく変更したら再実行してください(差分がなければファイルは書き換わりません)。
 
+**自動生成** — Serena がプロジェクト状態ファイルを作るタイミングに合わせて、コードマップも自動で生成されます:
+
+- `serena project index` 実行時にインデックス作成後、コードマップも生成されます(`--no-code-map` で無効化)
+- `project.yml` で `export_code_map_on_activation: true` を設定すると、MCP でのプロジェクト activation 時(言語サーバー起動と同じバックグラウンド初期化)に自動で再生成されます。内容に変化がなければファイルは書き換わりません
+
 ### 2. MCP サーバーとしての利用
 
 MCP サーバーは本家と同じ `serena start-mcp-server` です。この fork を指定して起動します。
@@ -80,13 +85,15 @@ args = ["--from", "git+https://github.com/TakumaAida/serena-code-map", "serena",
 
 その他のクライアントの設定方法は[本家 README](https://github.com/oraios/serena#readme) と同じです(`--from` の参照先をこの fork に変えるだけです)。
 
-### 3. エージェントへの案内
+### 3. エージェントへの案内(自動)
 
-生成された `.serena/code-map/AGENTS_SNIPPET.md` の内容を、プロジェクトの `AGENTS.md`(または `CLAUDE.md`)に追記してください。エージェントは次の運用になります:
+コードマップが存在するプロジェクトでは、**プロジェクト activation 時のメッセージに使い方の案内が自動で含まれる**ため、`AGENTS.md` への手動追記は不要です。エージェントは次の運用になります:
 
-1. セッション開始時に `overview.md` を読む
+1. activation メッセージの案内に従い、まず `overview.md` を読む
 2. 必要なファイルの詳細だけ `modules/*.md` から読む
 3. 正確な最新のシンボル確認・参照検索・編集には従来どおり Serena MCP を使う
+
+MCP を経由しない運用(例: コードマップだけを使う)の場合は、生成された `.serena/code-map/AGENTS_SNIPPET.md` の内容をプロジェクトの `AGENTS.md`(または `CLAUDE.md`)に追記してください。
 
 ## ライセンス
 

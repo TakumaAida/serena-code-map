@@ -1044,6 +1044,13 @@ class SerenaAgent:
             elif self._active_tools.contains_tool_class(OnboardingTool):
                 msg += "Onboarding has not been performed yet, you should call Serena's `onboarding` tool now to set up project memories."
 
+        # add pointer to the static code map (if one exists or is being generated for this project)
+        from serena.code_map.export import code_map_activation_notice
+
+        code_map_notice = code_map_activation_notice(proj)
+        if code_map_notice is not None:
+            msg += f"\n{code_map_notice}"
+
         # add prompts for modes that were dynamically activated by the project
         modes_with_prompts = self._project_prompt_status.get_modes_with_prompts_to_be_provided_for_project_activation(session_id)
         if modes_with_prompts:
@@ -1203,6 +1210,7 @@ class SerenaAgent:
         def init_project_services() -> None:
             self._run_project_activation_command(project)
             self._init_active_project_language_backend()
+            self._maybe_export_code_map()
 
         # initialise the project's language backend in the background
         self.issue_task(init_project_services)
@@ -1257,6 +1265,27 @@ class SerenaAgent:
                     terminate_process_tree_with_kill_fallback(p, terminate_timeout=5.0, process_name="activation_command")
         except Exception:
             log.exception(f"Unexpected error running activation_command for project '{project.project_name}'")
+
+    def _maybe_export_code_map(self) -> None:
+        """
+        Exports the active project's static code map (.serena/code-map) if the project configuration
+        requests it via `export_code_map_on_activation`. Runs as part of the background project
+        initialization task; failures are logged and do not affect the activation.
+        """
+        project = self._active_project
+        if project is None or not project.project_config.export_code_map_on_activation:
+            return
+        if not self.get_language_backend().is_lsp():
+            log.info("export_code_map_on_activation is set, but the code map export requires the LSP backend; skipping")
+            return
+        try:
+            from serena.code_map.export import export_project_code_map
+
+            ls_manager = project.get_language_server_manager_or_raise()
+            with LogTime("Code map export", logger=log):
+                export_project_code_map(project, ls_manager)
+        except Exception as e:
+            log.error("Code map export on project activation failed", exc_info=e)
 
     def _init_active_project_language_backend(self) -> None:
         """

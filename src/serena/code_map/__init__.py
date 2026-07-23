@@ -1,4 +1,5 @@
 from serena.code_map.builder import CodeMapBuilder, CodeMapBuildOptions
+from serena.code_map.export import default_code_map_dir, export_project_code_map
 from serena.code_map.model import (
     CodeMap,
     CodeMapDiagnostic,
@@ -26,6 +27,8 @@ __all__ = [
     "QuickInfoParts",
     "SourcePosition",
     "SourceRange",
+    "default_code_map_dir",
+    "export_project_code_map",
     "parse_quick_info",
     "render_code_map_files",
     "render_module_markdown",
