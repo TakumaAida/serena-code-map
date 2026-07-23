@@ -632,6 +632,8 @@ class LanguageServerSymbolRetriever:
     def request_info_for_symbol_batch(
         self,
         symbols: list[LanguageServerSymbol],
+        *,
+        budget_seconds_override: float | None = None,
     ) -> dict[LanguageServerSymbol, str | None]:
         """Retrieves information for multiple symbols while staying within a time budget.
 
@@ -646,6 +648,8 @@ class LanguageServerSymbolRetriever:
         requests. If exceeded, remaining symbols get info=None (partial results).
 
         :param symbols: list of symbols to get info for
+        :param budget_seconds_override: if not None, use this value as the hover budget instead of the configured
+            symbol_info_budget; a value of 0 disables the budget mechanism entirely (no time limit).
         :return: a dict mapping each processable symbol to its info (or None if unavailable). Symbols with missing location attributes (relative_path/line/column is None) are skipped and omitted from the result.
         """
         if not symbols:
@@ -670,7 +674,10 @@ class LanguageServerSymbolRetriever:
             symbols_by_file.setdefault(file_path, []).append(sym)
 
         hover_spent_seconds = 0.0
-        symbol_info_budget_seconds = self._get_symbol_info_budget()
+        if budget_seconds_override is not None:
+            symbol_info_budget_seconds = budget_seconds_override
+        else:
+            symbol_info_budget_seconds = self._get_symbol_info_budget()
         # the vars below are only for debug logging
         per_file_stats: list[tuple[str, int, float]] = []
         total_hover_lookups = 0
